@@ -34,7 +34,7 @@ public class TradingTablePro extends JFrame {
         columnOptions.put("S/R", new String[]{"", "Structure", "FIB 0.382", "FIB 0.50", "FIB 0.618", "FIB 0.786", "FIB 0.886", "FIB 100", "FIB 1.13", "FIB 1.27", "FIB 1.44", "FIB 1.168", "FIB 2.0"});
         columnOptions.put("Direction", new String[]{"", "Bullish", "Bearish"});
         columnOptions.put("Entry signal", new String[]{"", "Double top", "Double-bottom", "Doji", "Wicks", "Wedge", "Tweezer", "Three drive", "V-shape", "Head & shoulders", "Spinning", "Triple top", "Tribottom btm", "Decending-wedge", "Ascending-wedge"});
-        columnOptions.put("Outcome", new String[]{"", "Win", "Loss", "Break Even"});
+        columnOptions.put("outcome", new String[]{"", "Win", "Loss", "Break Even"});
     }
 
     private JTable table;

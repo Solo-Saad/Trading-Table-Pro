@@ -172,37 +172,6 @@
                 </configuration>
             </plugin>
 
-
-            <plugin>
-                <groupId>org.panteleyev</groupId>
-                <artifactId>jpackage-maven-plugin</artifactId>
-                <version>1.6.5</version>
-                <configuration>
-
-                    <!-- App identity -->
-                    <name>TradingTablePro</name>
-                    <appVersion>1.0.0</appVersion>
-                    <vendor>YourName</vendor>
-                    <description>Trading Analysis Dashboard</description>
-                    <copyright>Copyright 2025 YourName</copyright>
-
-                    <!-- Input: your fat JAR from the shade plugin -->
-                    <input>target</input>
-                    <mainJar>TradeLogApp-1.0.0.jar</mainJar>
-                    <mainClass>MainApp.TradingTablePro</mainClass>
-
-                    <!-- Output folder -->
-                    <destination>target/dist</destination>
-
-                    <!-- Windows-specific settings -->
-                    <type>MSI</type>                  <!-- or MSI — see note below -->
-                    <winDirChooser>true</winDirChooser>
-                    <winShortcut>true</winShortcut>
-                    <winMenu>true</winMenu>
-                    <winMenuGroup>TradingTablePro</winMenuGroup>
-
-                </configuration>
-            </plugin>
         </plugins>
     </build>
 
