@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.example</groupId>
+    <artifactId>TradeLogApp</artifactId>
+    <version>1.0.0</version>
+    <!--
+        CHANGED: Was "1.0-SNAPSHOT". jpackage requires a clean version
+        number in X.Y.Z format. SNAPSHOT versions cause packaging errors.
+    -->
+
+    <properties>
+        <!--
+            FIXED: Was "25" which doesn't match the compiler plugin below
+            and isn't an LTS release. Aligned everything to Java 21 LTS.
+        -->
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+
+        <!--
+            REMOVED: javafx-controls and javafx-fxml.
+            Your app uses javax.swing exclusively — JavaFX is not referenced
+            anywhere in your code. These were bloating your JAR and can cause
+            module system conflicts during jpackage.
+
+            If you plan to migrate to JavaFX in the future, add them back then.
+        -->
+
+        <!--
+            KEPT but flagged: Apache POI for Excel.
+            This is not currently used in your code (the exportTableData()
+            method is commented out). It adds ~15MB to your fat JAR.
+
+            ➤ If you don't plan to re-enable Excel export: DELETE this block.
+            ➤ If you do plan to use it: keep it and bump to latest (5.3.0).
+        -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.3.0</version>
+        </dependency>
+
+        <!-- SQLite — correctly included, version bumped to latest stable -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>3.50.3.0</version>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 PLUGIN 1: Compiler
+                 FIXED: Removed hardcoded <source>/<target> override since
+                 the <properties> block above now handles this consistently.
+                 ═══════════════════════════════════════════════════════════ -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+            </plugin>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 PLUGIN 2: Shade (Fat JAR)
+                 NEW: Bundles ALL dependencies (SQLite driver, POI, etc.)
+                 into a single self-contained JAR.
+
+                 This is the fix for your .exe not saving — the SQLite JDBC
+                 driver was missing from your standalone build, causing
+                 DatabaseManager.connect() to silently return null.
+
+                 Run with: mvn package
+                 Output:   target/TradeLogApp-1.0.0.jar
+                 ═══════════════════════════════════════════════════════════ -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.2</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <!-- Strip module-info files that cause conflicts -->
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer implementation=
+                                                     "org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>MainApp.TradingTablePro</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- ═══════════════════════════════════════════════════════════
+                 PLUGIN 3: jpackage (Windows .exe / .msi Installer)
+                 NEW: Takes the fat JAR from Shade and wraps it with a
+                 trimmed JRE into a real Windows installer. Users don't
+                 need Java installed on their machine.
+
+                 PREREQUISITE: WiX Toolset v3 must be installed on Windows.
+                 Download: github.com/wixtoolset/wix3/releases
+
+                 Run with: mvn jpackage:jpackage
+                 Output:   target/dist/TradingTablePro-1.0.0.exe
+
+                 Change <type>EXE</type> to <type>MSI</type> if you want
+                 an MSI installer instead (recommended for MSIX conversion).
+                 ═══════════════════════════════════════════════════════════ -->
+            <plugin>
+                <groupId>org.panteleyev</groupId>
+                <artifactId>jpackage-maven-plugin</artifactId>
+                <version>1.6.5</version>
+                <configuration>
+
+                    <!-- App identity -->
+                    <name>TradingTablePro</name>
+                    <appVersion>1.0.0</appVersion>
+                    <vendor>YourName</vendor>
+                    <description>Trading Analysis Dashboard</description>
+                    <copyright>Copyright 2025 YourName</copyright>
+
+                    <!--
+                        Input folder containing your fat JAR.
+                        mainJar must match the filename Shade produces:
+                        artifactId + "-" + version + ".jar"
+                    -->
+                    <input>target</input>
+                    <mainJar>TradeLogApp-1.0.0.jar</mainJar>
+                    <mainClass>MainApp.TradingTablePro</mainClass>
+
+                    <!-- Output folder -->
+                    <destination>target/dist</destination>
+
+                    <!--
+                        Windows-specific settings.
+                        winDirChooser: lets user pick install location
+                        winShortcut:   creates a Desktop shortcut
+                        winMenu:       adds to Start Menu
+                    -->
+                    <type>MSI</type>
+                    <winDirChooser>true</winDirChooser>
+                    <winShortcut>true</winShortcut>
+                    <winMenu>true</winMenu>
+                    <winMenuGroup>TradingTablePro</winMenuGroup>
+
+                </configuration>
+            </plugin>
+
+
+            <plugin>
+                <groupId>org.panteleyev</groupId>
+                <artifactId>jpackage-maven-plugin</artifactId>
+                <version>1.6.5</version>
+                <configuration>
+
+                    <!-- App identity -->
+                    <name>TradingTablePro</name>
+                    <appVersion>1.0.0</appVersion>
+                    <vendor>YourName</vendor>
+                    <description>Trading Analysis Dashboard</description>
+                    <copyright>Copyright 2025 YourName</copyright>
+
+                    <!-- Input: your fat JAR from the shade plugin -->
+                    <input>target</input>
+                    <mainJar>TradeLogApp-1.0.0.jar</mainJar>
+                    <mainClass>MainApp.TradingTablePro</mainClass>
+
+                    <!-- Output folder -->
+                    <destination>target/dist</destination>
+
+                    <!-- Windows-specific settings -->
+                    <type>MSI</type>                  <!-- or MSI — see note below -->
+                    <winDirChooser>true</winDirChooser>
+                    <winShortcut>true</winShortcut>
+                    <winMenu>true</winMenu>
+                    <winMenuGroup>TradingTablePro</winMenuGroup>
+
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
