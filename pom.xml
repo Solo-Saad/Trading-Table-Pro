@@ -140,10 +140,11 @@
 
                     <!-- App identity -->
                     <name>TradingTablePro</name>
+                    <icon>src/main/resources/Trade.ico</icon>
                     <appVersion>1.0.0</appVersion>
-                    <vendor>YourName</vendor>
+                    <vendor>Ismail</vendor>
                     <description>Trading Analysis Dashboard</description>
-                    <copyright>Copyright 2025 YourName</copyright>
+                    <copyright>Copyright 2026 Ismail</copyright>
 
                     <!--
                         Input folder containing your fat JAR.

@@ -44,6 +44,16 @@ public class TradingTablePro extends JFrame {
 
     public TradingTablePro() {
         setTitle("Trading Analysis Dashboard");
+        try {
+            ImageIcon appIcon = new ImageIcon(
+                    getClass().getResource("/Trades.png")
+            );
+
+            setIconImage(appIcon.getImage());
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
 
@@ -435,8 +445,6 @@ public class TradingTablePro extends JFrame {
         );
 
         dropdown.setVisible(true);
-
-        AWTEventListener dropdownListener = null;
 
         // Close if user clicks anywhere outside
         dropdownListener = new AWTEventListener() {
