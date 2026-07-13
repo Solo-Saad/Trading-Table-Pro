@@ -54,6 +54,18 @@
             <version>3.50.3.0</version>
         </dependency>
 
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf</artifactId>
+            <version>3.5.4</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -109,7 +121,7 @@
                             <transformers>
                                 <transformer implementation=
                                                      "org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>MainApp.TradingTablePro</mainClass>
+                                    <mainClass>MainApp.MainFrame</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>
@@ -142,9 +154,9 @@
                     <name>TradingTablePro</name>
                     <icon>src/main/resources/Trade.ico</icon>
                     <appVersion>1.0.0</appVersion>
-                    <vendor>Ismail</vendor>
+                    <vendor>Ismail Technologies</vendor>
                     <description>Trading Analysis Dashboard</description>
-                    <copyright>Copyright 2026 Ismail</copyright>
+                    <copyright>Copyright 2026 Ismail Technologies</copyright>
 
                     <!--
                         Input folder containing your fat JAR.

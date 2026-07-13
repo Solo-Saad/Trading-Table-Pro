@@ -90,6 +90,19 @@ public class DatabaseManager {
                 if (!hasDateColumn) {
                     stmt.execute("ALTER TABLE trades ADD COLUMN trade_date TEXT");
                 }
+
+                boolean journalHasTradeId = false;
+                try (ResultSet cols = stmt.executeQuery("PRAGMA table_info(journal_entries)")) {
+                    while (cols.next()) {
+                        if ("trade_id".equalsIgnoreCase(cols.getString("name"))) {
+                            journalHasTradeId = true;
+                            break;
+                        }
+                    }
+                }
+                if (!journalHasTradeId) {
+                    stmt.execute("ALTER TABLE journal_entries ADD COLUMN trade_id INTEGER");
+                }
             }
 
         } catch (Exception e) {
@@ -101,11 +114,11 @@ public class DatabaseManager {
     }
 
     public static void updateTrade(Connection conn, int id, String pair, String pattern, String wave,
-                                    String diversion, String sr, String direction,
-                                    String entrySignal, String outcome) throws SQLException {
+                                   String diversion, String sr, String direction,
+                                   String entrySignal, String outcome, String tradeDate) throws SQLException {
         String sql = """
             UPDATE trades SET pair=?, pattern=?, wave=?, diversion=?, sr=?,
-                               direction=?, entrySignal=?, outcome=?
+                               direction=?, entrySignal=?, outcome=?, trade_date=?
             WHERE id=?
         """;
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -117,14 +130,16 @@ public class DatabaseManager {
             pstmt.setString(6, direction);
             pstmt.setString(7, entrySignal);
             pstmt.setString(8, outcome);
-            pstmt.setInt(9, id);
+            pstmt.setString(9, (tradeDate == null || tradeDate.isBlank())
+                    ? java.time.LocalDate.now().toString() : tradeDate);
+            pstmt.setInt(10, id);
             pstmt.executeUpdate();
         }
     }
 
     public static int insertTrade(Connection conn, String pair, String pattern, String wave,
-                                   String diversion, String sr, String direction,
-                                   String entrySignal, String outcome) throws SQLException {
+                                  String diversion, String sr, String direction,
+                                  String entrySignal, String outcome, String tradeDate) throws SQLException {
         String sql = """
             INSERT INTO trades (pair, pattern, wave, diversion, sr, direction, entrySignal, outcome, trade_date)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -138,7 +153,8 @@ public class DatabaseManager {
             pstmt.setString(6, direction);
             pstmt.setString(7, entrySignal);
             pstmt.setString(8, outcome);
-            pstmt.setString(9, java.time.LocalDate.now().toString());
+            pstmt.setString(9, (tradeDate == null || tradeDate.isBlank())
+                    ? java.time.LocalDate.now().toString() : tradeDate);
             pstmt.executeUpdate();
 
             try (ResultSet keys = pstmt.getGeneratedKeys()) {
@@ -162,13 +178,33 @@ public class DatabaseManager {
         }
     }
 
-    public static void insertJournalEntry(Connection conn, String entryDate, String note) throws SQLException {
-        String sql = "INSERT INTO journal_entries (entry_date, note) VALUES (?, ?)";
+    public static void insertJournalEntry(Connection conn, String entryDate, String note, Integer tradeId) throws SQLException {
+        String sql = "INSERT INTO journal_entries (entry_date, note, trade_id) VALUES (?, ?, ?)";
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, entryDate);
             pstmt.setString(2, note);
+            if (tradeId == null) pstmt.setNull(3, java.sql.Types.INTEGER);
+            else pstmt.setInt(3, tradeId);
             pstmt.executeUpdate();
         }
+    }
+
+    /** Recent trades for the Journal's "link to trade" picker, newest first. */
+    public static java.util.LinkedHashMap<Integer, String> getTradeOptions(Connection conn) throws SQLException {
+        java.util.LinkedHashMap<Integer, String> options = new java.util.LinkedHashMap<>();
+        String sql = "SELECT id, pair, pattern, trade_date FROM trades "
+                + "WHERE pair IS NOT NULL AND pair != '' ORDER BY id DESC LIMIT 100";
+        try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                String pattern = rs.getString("pattern");
+                String date = rs.getString("trade_date");
+                String label = rs.getString("pair")
+                        + (pattern != null && !pattern.isBlank() ? " \u00b7 " + pattern : "")
+                        + (date != null && !date.isBlank() ? " \u00b7 " + date : "");
+                options.put(rs.getInt("id"), label);
+            }
+        }
+        return options;
     }
 
     public static void deleteJournalEntry(Connection conn, int id) throws SQLException {

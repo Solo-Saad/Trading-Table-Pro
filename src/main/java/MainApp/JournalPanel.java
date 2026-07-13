@@ -6,18 +6,20 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 
 /**
- * Standalone journal -- freeform notes with a date, not linked to any
- * specific trade row (decision made in Phase 3 planning: simpler
- * schema, journal_entries table has no trade_id column).
+ * Journal entries can optionally link to a specific trade -- picked
+ * from a dropdown of recent trades when writing the entry. Unlinked
+ * entries are still fully supported (trade_id is nullable).
  */
 public class JournalPanel extends JPanel {
 
     private JTextArea noteInput;
     private JPanel entryList;
     private JPanel form;
-    private JScrollPane inputScroll;
+    private JComboBox<String> tradeSelector;
+    private java.util.List<Integer> tradeSelectorIds; // parallel to combo box items; null at index 0
 
     public JournalPanel() {
         setLayout(new BorderLayout(0, 16));
@@ -32,33 +34,52 @@ public class JournalPanel extends JPanel {
         body.setBackground(Theme.current().background);
 
         // ─── New entry form ───
-        JPanel form = new JPanel(new BorderLayout(0, 8));
-        this.form = form;
+        form = new JPanel();
+        form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         form.setBackground(Theme.current().surface);
         form.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.current().border),
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
 
-        JLabel formLabel = new JLabel("New entry — " + LocalDate.now());
+        JLabel formLabel = new JLabel("New entry \u2014 " + LocalDate.now());
         formLabel.setFont(Theme.cellFont());
         formLabel.setForeground(Theme.current().textSecondary);
-        form.add(formLabel, BorderLayout.NORTH);
+        formLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        form.add(formLabel);
+        form.add(Box.createRigidArea(new Dimension(0, 8)));
+
+        JPanel linkRow = new JPanel(new BorderLayout(8, 0));
+        linkRow.setBackground(Theme.current().surface);
+        linkRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        linkRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+
+        JLabel linkLabel = new JLabel("Link to trade:");
+        linkLabel.setFont(Theme.cellFont());
+        linkLabel.setForeground(Theme.current().textSecondary);
+        linkRow.add(linkLabel, BorderLayout.WEST);
+
+        tradeSelector = new JComboBox<>();
+        linkRow.add(tradeSelector, BorderLayout.CENTER);
+        form.add(linkRow);
+        form.add(Box.createRigidArea(new Dimension(0, 8)));
 
         noteInput = new JTextArea(4, 20);
         noteInput.setLineWrap(true);
         noteInput.setWrapStyleWord(true);
         noteInput.setFont(Theme.cellFont());
         JScrollPane inputScroll = new JScrollPane(noteInput);
-        this.inputScroll = inputScroll;
-        form.add(inputScroll, BorderLayout.CENTER);
+        inputScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        form.add(inputScroll);
+        form.add(Box.createRigidArea(new Dimension(0, 8)));
 
         JButton saveButton = new JButton("Save entry");
         saveButton.addActionListener(e -> saveEntry());
         JPanel saveRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         saveRow.setBackground(Theme.current().surface);
+        saveRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         saveRow.add(saveButton);
-        form.add(saveRow, BorderLayout.SOUTH);
+        form.add(saveRow);
 
         body.add(form, BorderLayout.NORTH);
 
@@ -74,7 +95,14 @@ public class JournalPanel extends JPanel {
 
         add(body, BorderLayout.CENTER);
 
+        refreshTradeOptions();
         loadEntries();
+
+        Timer refreshTimer = new Timer(5000, e -> {
+            refreshTradeOptions();
+            loadEntries();
+        });
+        refreshTimer.start();
     }
 
     public void refreshTheme() {
@@ -89,6 +117,33 @@ public class JournalPanel extends JPanel {
         loadEntries();
     }
 
+    /** Repopulates the "link to trade" dropdown, preserving the current selection where possible. */
+    private void refreshTradeOptions() {
+        String previouslySelected = (String) tradeSelector.getSelectedItem();
+
+        LinkedHashMap<Integer, String> options = new LinkedHashMap<>();
+        try (Connection conn = DatabaseManager.connect()) {
+            options = DatabaseManager.getTradeOptions(conn);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        tradeSelector.removeAllItems();
+        tradeSelectorIds = new java.util.ArrayList<>();
+
+        tradeSelector.addItem("None");
+        tradeSelectorIds.add(null);
+
+        for (var entry : options.entrySet()) {
+            tradeSelector.addItem(entry.getValue());
+            tradeSelectorIds.add(entry.getKey());
+        }
+
+        if (previouslySelected != null) {
+            tradeSelector.setSelectedItem(previouslySelected);
+        }
+    }
+
     private void saveEntry() {
         String note = noteInput.getText().trim();
         if (note.isEmpty()) {
@@ -97,9 +152,14 @@ public class JournalPanel extends JPanel {
             return;
         }
 
+        int selectedIndex = tradeSelector.getSelectedIndex();
+        Integer tradeId = (selectedIndex > 0 && tradeSelectorIds != null && selectedIndex < tradeSelectorIds.size())
+                ? tradeSelectorIds.get(selectedIndex) : null;
+
         try (Connection conn = DatabaseManager.connect()) {
-            DatabaseManager.insertJournalEntry(conn, LocalDate.now().toString(), note);
+            DatabaseManager.insertJournalEntry(conn, LocalDate.now().toString(), note, tradeId);
             noteInput.setText("");
+            tradeSelector.setSelectedIndex(0);
             loadEntries();
         } catch (Exception e) {
             JOptionPane.showMessageDialog(this,
@@ -111,7 +171,9 @@ public class JournalPanel extends JPanel {
     private void loadEntries() {
         entryList.removeAll();
 
-        String sql = "SELECT id, entry_date, note FROM journal_entries ORDER BY id DESC";
+        String sql = "SELECT j.id, j.entry_date, j.note, j.trade_id, t.pair, t.pattern, t.trade_date "
+                + "FROM journal_entries j LEFT JOIN trades t ON j.trade_id = t.id "
+                + "ORDER BY j.id DESC";
 
         try (
                 Connection conn = DatabaseManager.connect();
@@ -121,7 +183,15 @@ public class JournalPanel extends JPanel {
             boolean any = false;
             while (rs.next()) {
                 any = true;
-                entryList.add(entryCard(rs.getInt("id"), rs.getString("entry_date"), rs.getString("note")));
+                String linkedLabel = null;
+                if (rs.getObject("trade_id") != null && rs.getString("pair") != null) {
+                    String pattern = rs.getString("pattern");
+                    String date = rs.getString("trade_date");
+                    linkedLabel = "Linked: " + rs.getString("pair")
+                            + (pattern != null && !pattern.isBlank() ? " \u00b7 " + pattern : "")
+                            + (date != null && !date.isBlank() ? " \u00b7 " + date : "");
+                }
+                entryList.add(entryCard(rs.getInt("id"), rs.getString("entry_date"), rs.getString("note"), linkedLabel));
                 entryList.add(Box.createRigidArea(new Dimension(0, 8)));
             }
             if (!any) {
@@ -140,11 +210,11 @@ public class JournalPanel extends JPanel {
         repaint();
     }
 
-    private JPanel entryCard(int id, String date, String note) {
+    private JPanel entryCard(int id, String date, String note, String linkedLabel) {
         JPanel card = new JPanel(new BorderLayout(0, 6));
         card.setBackground(Theme.current().surface);
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
         card.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.current().border),
                 BorderFactory.createEmptyBorder(10, 12, 10, 12)
@@ -153,10 +223,25 @@ public class JournalPanel extends JPanel {
         JPanel headerRow = new JPanel(new BorderLayout());
         headerRow.setBackground(Theme.current().surface);
 
+        JPanel headerLeft = new JPanel();
+        headerLeft.setLayout(new BoxLayout(headerLeft, BoxLayout.Y_AXIS));
+        headerLeft.setBackground(Theme.current().surface);
+
         JLabel dateLbl = new JLabel(date);
         dateLbl.setFont(Theme.buttonFont());
         dateLbl.setForeground(Theme.current().accent);
-        headerRow.add(dateLbl, BorderLayout.WEST);
+        dateLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+        headerLeft.add(dateLbl);
+
+        if (linkedLabel != null) {
+            JLabel linkLbl = new JLabel(linkedLabel);
+            linkLbl.setFont(new Font(Theme.FONT_FAMILY, Font.ITALIC, 11));
+            linkLbl.setForeground(Theme.current().textSecondary);
+            linkLbl.setAlignmentX(Component.LEFT_ALIGNMENT);
+            headerLeft.add(linkLbl);
+        }
+
+        headerRow.add(headerLeft, BorderLayout.WEST);
 
         JButton deleteButton = new JButton("Delete");
         deleteButton.setFont(Theme.cellFont());

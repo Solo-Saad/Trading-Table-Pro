@@ -22,18 +22,22 @@ public class Sidebar extends JPanel {
     private final Map<String, JPanel> navRows = new LinkedHashMap<>();
     private String activeItem = "Dashboard";
 
+    private JPanel navPanel;
+    private JPanel bottomPanel;
+    private JLabel brand;
+
     public Sidebar(Consumer<String> onNavigate) {
         setLayout(new BorderLayout());
         setBackground(Theme.current().surface);
         setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, Theme.current().border));
         setPreferredSize(new Dimension(190, 0));
 
-        JPanel navPanel = new JPanel();
+        navPanel = new JPanel();
         navPanel.setLayout(new BoxLayout(navPanel, BoxLayout.Y_AXIS));
         navPanel.setBackground(Theme.current().surface);
         navPanel.setBorder(BorderFactory.createEmptyBorder(16, 10, 16, 10));
 
-        JLabel brand = new JLabel("TradeLog");
+        brand = new JLabel("TradeLog");
         brand.setFont(Theme.headerFont());
         brand.setForeground(Theme.current().textPrimary);
         brand.setBorder(BorderFactory.createEmptyBorder(0, 6, 20, 0));
@@ -50,7 +54,7 @@ public class Sidebar extends JPanel {
 
         add(navPanel, BorderLayout.NORTH);
 
-        JPanel bottomPanel = new JPanel();
+        bottomPanel = new JPanel();
         bottomPanel.setLayout(new BoxLayout(bottomPanel, BoxLayout.Y_AXIS));
         bottomPanel.setBackground(Theme.current().surface);
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 16, 10));
@@ -112,5 +116,17 @@ public class Sidebar extends JPanel {
             row.setBackground(isActive ? Theme.current().hover : Theme.current().surface);
             text.setForeground(isActive ? Theme.current().accent : Theme.current().textSecondary);
         }
+    }
+
+    /** Recolors everything in place -- no rebuild, so no state to lose here anyway. */
+    public void refreshTheme() {
+        setBackground(Theme.current().surface);
+        setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, Theme.current().border));
+        navPanel.setBackground(Theme.current().surface);
+        bottomPanel.setBackground(Theme.current().surface);
+        brand.setForeground(Theme.current().textPrimary);
+        updateHighlight();
+        revalidate();
+        repaint();
     }
 }
