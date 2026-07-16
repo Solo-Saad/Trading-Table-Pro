@@ -24,6 +24,8 @@ public class RoundedPanel extends JPanel {
 
     private int cornerRadius = 16;
     private Color fixedBackground = null;
+    private Color gradientFrom = null;
+    private Color gradientTo = null;
     private boolean showBorder = true;
     private boolean showShadow = true;
 
@@ -44,6 +46,13 @@ public class RoundedPanel extends JPanel {
     /** Overrides the theme-driven surface color with a fixed one. Use sparingly. */
     public RoundedPanel fixedBackground(Color color) {
         this.fixedBackground = color;
+        return this;
+    }
+
+    /** Fills the card with a diagonal gradient instead of a flat color -- for hero/banner cards. */
+    public RoundedPanel gradient(Color from, Color to) {
+        this.gradientFrom = from;
+        this.gradientTo = to;
         return this;
     }
 
@@ -72,7 +81,11 @@ public class RoundedPanel extends JPanel {
         }
 
         Color bg = fixedBackground != null ? fixedBackground : Theme.current().surface;
-        g2.setColor(bg);
+        if (gradientFrom != null && gradientTo != null) {
+            g2.setPaint(new GradientPaint(0, 0, gradientFrom, w, h, gradientTo));
+        } else {
+            g2.setColor(bg);
+        }
         g2.fillRoundRect(0, 0, w - edgePad, h - edgePad - 1, cornerRadius, cornerRadius);
 
         if (showBorder) {

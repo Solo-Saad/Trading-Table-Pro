@@ -6,7 +6,7 @@
 
     <groupId>org.example</groupId>
     <artifactId>TradeLogApp</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
     <!--
         CHANGED: Was "1.0-SNAPSHOT". jpackage requires a clean version
         number in X.Y.Z format. SNAPSHOT versions cause packaging errors.
@@ -58,12 +58,6 @@
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf</artifactId>
             <version>3.5.4</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.poi</groupId>
-            <artifactId>poi-ooxml</artifactId>
-            <version>5.2.5</version>
         </dependency>
 
     </dependencies>
@@ -164,8 +158,8 @@
                         artifactId + "-" + version + ".jar"
                     -->
                     <input>target</input>
-                    <mainJar>TradeLogApp-1.0.0.jar</mainJar>
-                    <mainClass>MainApp.TradingTablePro</mainClass>
+                    <mainJar>TradeLogApp-2.0.0.jar</mainJar>
+                    <mainClass>MainApp.MainFrame</mainClass>
 
                     <!-- Output folder -->
                     <destination>target/dist</destination>

@@ -26,6 +26,14 @@ public class CalendarPanel extends JPanel {
     private JPanel gridPanel;
 
     public CalendarPanel() {
+        build();
+
+        Timer refreshTimer = new Timer(5000, e -> loadMonth());
+        refreshTimer.start();
+    }
+
+    private void build() {
+        removeAll();
         setLayout(new BorderLayout(0, 16));
         setBackground(Theme.current().background);
 
@@ -67,18 +75,17 @@ public class CalendarPanel extends JPanel {
         gridPanel.setBackground(Theme.current().background);
         add(gridPanel, BorderLayout.CENTER);
 
-        loadMonth();
-
-        Timer refreshTimer = new Timer(5000, e -> loadMonth());
-        refreshTimer.start();
+        loadMonth(); // uses the EXISTING currentMonth -- not reset, so a theme toggle
+        // doesn't jump you back to the current month if you'd navigated away
     }
 
+    /** Rebuilds every static container with fresh colors. currentMonth is
+     *  preserved (it's an instance field, untouched by build()), so
+     *  toggling theme doesn't reset which month you're looking at. */
     public void refreshTheme() {
-        setBackground(Theme.current().background);
-        if (gridPanel != null) {
-            gridPanel.setBackground(Theme.current().background);
-        }
-        loadMonth();
+        build();
+        revalidate();
+        repaint();
     }
 
     private void loadMonth() {

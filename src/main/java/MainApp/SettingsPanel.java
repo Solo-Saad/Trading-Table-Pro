@@ -26,10 +26,12 @@ import org.apache.poi.ss.usermodel.*;
 public class SettingsPanel extends JPanel {
 
     private final Consumer<String> onProfileSaved;
+    private final Runnable onImportComplete;
     private JTextField nameField;
 
-    public SettingsPanel(Consumer<String> onProfileSaved) {
+    public SettingsPanel(Consumer<String> onProfileSaved, Runnable onImportComplete) {
         this.onProfileSaved = onProfileSaved;
+        this.onImportComplete = onImportComplete;
         build();
     }
 
@@ -253,6 +255,9 @@ public class SettingsPanel extends JPanel {
     // ─── Data & export ───────────────────────────────────────────────
 
     private java.util.List<JPanel> dataRows() {
+        JButton importButton = new JButton("Import CSV");
+        importButton.addActionListener(e -> importCsv());
+
         JButton csvButton = new JButton("Export CSV");
         csvButton.addActionListener(e -> exportCsv());
 
@@ -263,10 +268,117 @@ public class SettingsPanel extends JPanel {
         excelButton.addActionListener(e -> exportExcel());
 
         java.util.List<JPanel> rows = new java.util.ArrayList<>();
+        rows.add(settingRow("Import trades", "Add trades in bulk from a CSV file", importButton));
         rows.add(settingRow("Raw data", "All trades as a spreadsheet-ready CSV", csvButton));
         rows.add(settingRow("Summary report", "Formatted Word document with stats + trade log", wordButton));
         rows.add(settingRow("Full workbook", "Excel file with a data sheet and a summary sheet", excelButton));
         return rows;
+    }
+
+    private void importCsv() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("CSV files", "csv"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File file = chooser.getSelectedFile();
+
+        int imported = 0, skipped = 0;
+
+        try (
+                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(file));
+                Connection conn = DatabaseManager.connect()
+        ) {
+            conn.setAutoCommit(false);
+            String line;
+            boolean firstLine = true;
+
+            while ((line = reader.readLine()) != null) {
+                if (line.isBlank()) continue;
+
+                if (firstLine) {
+                    firstLine = false;
+                    // Skip a header row if it looks like one (matches our own export format)
+                    if (line.trim().toLowerCase().startsWith("pair,")) continue;
+                }
+
+                String[] fields = parseCsvLine(line);
+                if (fields.length < 8) {
+                    skipped++;
+                    continue;
+                }
+
+                String pair = fields[0];
+                String pattern = fields.length > 1 ? fields[1] : "";
+                String wave = fields.length > 2 ? fields[2] : "";
+                String diversion = fields.length > 3 ? fields[3] : "";
+                String sr = fields.length > 4 ? fields[4] : "";
+                String direction = fields.length > 5 ? fields[5] : "";
+                String entrySignal = fields.length > 6 ? fields[6] : "";
+                String outcome = fields.length > 7 ? fields[7] : "";
+                String tradeDate = fields.length > 8 ? fields[8] : "";
+
+                if (pair.isBlank()) {
+                    skipped++;
+                    continue;
+                }
+
+                try {
+                    DatabaseManager.insertTrade(conn, pair, pattern, wave, diversion, sr,
+                            direction, entrySignal, outcome, tradeDate);
+                    imported++;
+                } catch (Exception rowEx) {
+                    skipped++;
+                }
+            }
+
+            conn.commit();
+
+            JOptionPane.showMessageDialog(this,
+                    "Import complete.\n\nImported: " + imported + "\nSkipped: " + skipped
+                            + (skipped > 0 ? "\n\nSkipped rows were missing a pair or had too few columns." : ""),
+                    "Import CSV", JOptionPane.INFORMATION_MESSAGE);
+
+            if (onImportComplete != null) onImportComplete.run();
+
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                    "Import failed.\n\n" + e.getMessage(),
+                    "Import Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    /** Minimal CSV line parser handling quoted fields and escaped quotes,
+     *  matching the format our own exportCsv() writes. */
+    private String[] parseCsvLine(String line) {
+        java.util.List<String> fields = new java.util.ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inQuotes = false;
+
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (inQuotes) {
+                if (c == '"') {
+                    if (i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                        current.append('"');
+                        i++;
+                    } else {
+                        inQuotes = false;
+                    }
+                } else {
+                    current.append(c);
+                }
+            } else {
+                if (c == '"') {
+                    inQuotes = true;
+                } else if (c == ',') {
+                    fields.add(current.toString().trim());
+                    current.setLength(0);
+                } else {
+                    current.append(c);
+                }
+            }
+        }
+        fields.add(current.toString().trim());
+        return fields.toArray(new String[0]);
     }
 
     // ─── Export implementations ──────────────────────────────────────

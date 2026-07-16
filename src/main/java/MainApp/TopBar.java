@@ -13,7 +13,7 @@ public class TopBar extends JPanel {
 
     private JLabel title;
     private JPanel rightPanel;
-    private JButton themeButton;
+    private ThemeToggleButton themeToggle;
     private JLabel profile;
 
     public TopBar() {
@@ -29,11 +29,8 @@ public class TopBar extends JPanel {
         rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
         rightPanel.setBackground(Theme.current().background);
 
-        themeButton = new JButton(Theme.getMode() == Theme.Mode.DARK ? "Light mode" : "Dark mode");
-        themeButton.setFont(Theme.cellFont());
-        themeButton.setFocusPainted(false);
-        themeButton.addActionListener(e -> Theme.toggle());
-        rightPanel.add(themeButton);
+        themeToggle = new ThemeToggleButton();
+        rightPanel.add(themeToggle);
 
         String savedName = "";
         try (Connection conn = DatabaseManager.connect()) {
@@ -73,7 +70,7 @@ public class TopBar extends JPanel {
         setBackground(Theme.current().background);
         title.setForeground(Theme.current().textPrimary);
         rightPanel.setBackground(Theme.current().background);
-        themeButton.setText(Theme.getMode() == Theme.Mode.DARK ? "Light mode" : "Dark mode");
+        themeToggle.repaint();
         profile.setBackground(Theme.current().accent);
         revalidate();
         repaint();

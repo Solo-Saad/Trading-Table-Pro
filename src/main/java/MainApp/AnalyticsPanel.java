@@ -11,96 +11,130 @@ import java.util.List;
 import java.util.ArrayList;
 
 /**
- * Real analytics screen, replacing the old JOptionPane dialog version
- * of analyseTradeOutcomes() that still lives in TradeTablePanel.
- * Reads directly from the trades table -- reflects saved data only,
- * same tradeoff as DashboardPanel (manual Refresh button).
+ * Real analytics screen. Every section now lives inside a RoundedPanel
+ * card, matching Dashboard/Trades. No manual Refresh button -- the
+ * screen already auto-refreshes every 5 seconds. New: win rate by
+ * S/R (Fibonacci) level, since which level a pattern completes at is
+ * as core to the trade thesis as the pattern itself for harmonic
+ * trading -- and Dashboard already covers win rate / best pattern, so
+ * this adds something genuinely new rather than repeating it.
  */
 public class AnalyticsPanel extends JPanel {
 
     private JPanel statsRow;
     private JPanel patternList;
+    private JPanel srList;
     private EquityCurveChart equityCurve;
 
     public AnalyticsPanel() {
+        build();
+
+        Timer refreshTimer = new Timer(5000, e -> loadData());
+        refreshTimer.start();
+    }
+
+    private void build() {
+        removeAll();
         setLayout(new BorderLayout(0, 16));
         setBackground(Theme.current().background);
-
-        JPanel headerRow = new JPanel(new BorderLayout());
-        headerRow.setBackground(Theme.current().background);
 
         JLabel title = new JLabel("Analytics");
         title.setFont(Theme.headerFont());
         title.setForeground(Theme.current().textPrimary);
-        headerRow.add(title, BorderLayout.WEST);
-
-        JButton refreshButton = new JButton("Refresh");
-        refreshButton.addActionListener(e -> loadData());
-        headerRow.add(refreshButton, BorderLayout.EAST);
-        add(headerRow, BorderLayout.NORTH);
+        add(title, BorderLayout.NORTH);
 
         JPanel body = new JPanel();
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
-        body.setBackground(Theme.current().background);
+        body.setOpaque(false);
 
         statsRow = new JPanel(new GridLayout(1, 3, 12, 0));
-        statsRow.setBackground(Theme.current().background);
+        statsRow.setOpaque(false);
         statsRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         statsRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 90));
         body.add(statsRow);
 
         body.add(Box.createRigidArea(new Dimension(0, 20)));
 
+        RoundedPanel equityCard = new RoundedPanel(new BorderLayout(0, 8));
+        equityCard.cornerRadius(16).showBorder(true).showShadow(true);
+        equityCard.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
+        equityCard.setAlignmentX(Component.LEFT_ALIGNMENT);
+        equityCard.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
+
         JLabel equityLabel = new JLabel("Equity curve (win = +1, loss = -1, break even = 0)");
         equityLabel.setFont(Theme.cellFont());
         equityLabel.setForeground(Theme.current().textSecondary);
-        equityLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        body.add(equityLabel);
-        body.add(Box.createRigidArea(new Dimension(0, 6)));
+        equityCard.add(equityLabel, BorderLayout.NORTH);
 
         equityCurve = new EquityCurveChart();
-        equityCurve.setAlignmentX(Component.LEFT_ALIGNMENT);
-        equityCurve.setMaximumSize(new Dimension(Integer.MAX_VALUE, 160));
         equityCurve.setPreferredSize(new Dimension(600, 160));
-        body.add(equityCurve);
+        equityCard.add(equityCurve, BorderLayout.CENTER);
 
+        body.add(equityCard);
         body.add(Box.createRigidArea(new Dimension(0, 20)));
+
+        RoundedPanel patternCard = new RoundedPanel(new BorderLayout(0, 8));
+        patternCard.cornerRadius(16).showBorder(true).showShadow(true);
+        patternCard.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
+        patternCard.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel patternLabel = new JLabel("Win rate by pattern");
         patternLabel.setFont(Theme.headerFont());
         patternLabel.setForeground(Theme.current().textPrimary);
-        patternLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        body.add(patternLabel);
-        body.add(Box.createRigidArea(new Dimension(0, 8)));
+        patternCard.add(patternLabel, BorderLayout.NORTH);
 
         patternList = new JPanel();
         patternList.setLayout(new BoxLayout(patternList, BoxLayout.Y_AXIS));
-        patternList.setBackground(Theme.current().background);
-        patternList.setAlignmentX(Component.LEFT_ALIGNMENT);
-        body.add(patternList);
+        patternList.setOpaque(false);
+        patternCard.add(patternList, BorderLayout.CENTER);
 
-        add(body, BorderLayout.CENTER);
+        body.add(patternCard);
+        body.add(Box.createRigidArea(new Dimension(0, 20)));
+
+        RoundedPanel srCard = new RoundedPanel(new BorderLayout(0, 8));
+        srCard.cornerRadius(16).showBorder(true).showShadow(true);
+        srCard.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
+        srCard.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel srLabel = new JLabel("Win rate by S/R level");
+        srLabel.setFont(Theme.headerFont());
+        srLabel.setForeground(Theme.current().textPrimary);
+        srCard.add(srLabel, BorderLayout.NORTH);
+
+        srList = new JPanel();
+        srList.setLayout(new BoxLayout(srList, BoxLayout.Y_AXIS));
+        srList.setOpaque(false);
+        srCard.add(srList, BorderLayout.CENTER);
+
+        body.add(srCard);
+
+        JScrollPane scroll = new JScrollPane(body);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getViewport().setOpaque(false);
+        scroll.setOpaque(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        add(scroll, BorderLayout.CENTER);
 
         loadData();
-
-        Timer refreshTimer = new Timer(5000, e -> loadData());
-        refreshTimer.start();
     }
 
     public void refreshTheme() {
-        setBackground(Theme.current().background);
-        loadData();
+        build();
+        revalidate();
+        repaint();
     }
 
     private void loadData() {
         statsRow.removeAll();
         patternList.removeAll();
+        srList.removeAll();
 
         int wins = 0, losses = 0, breakEvens = 0, bullish = 0, bearish = 0;
         Map<String, int[]> patternStats = new LinkedHashMap<>(); // pattern -> [wins, total]
+        Map<String, int[]> srStats = new LinkedHashMap<>();      // S/R level -> [wins, total]
         List<Integer> equitySeries = new ArrayList<>();
 
-        String sql = "SELECT pattern, direction, outcome FROM trades ORDER BY id ASC";
+        String sql = "SELECT pattern, direction, outcome, sr FROM trades ORDER BY id ASC";
 
         try (
                 Connection conn = DatabaseManager.connect();
@@ -112,6 +146,7 @@ public class AnalyticsPanel extends JPanel {
                 String pattern = rs.getString("pattern");
                 String direction = rs.getString("direction");
                 String outcome = rs.getString("outcome");
+                String sr = rs.getString("sr");
 
                 boolean hasData = (pattern != null && !pattern.isBlank())
                         || (outcome != null && !outcome.isBlank());
@@ -130,6 +165,12 @@ public class AnalyticsPanel extends JPanel {
 
                 if (pattern != null && !pattern.isBlank() && outcome != null && !outcome.isBlank()) {
                     int[] stat = patternStats.computeIfAbsent(pattern, k -> new int[2]);
+                    stat[1]++;
+                    if ("Win".equals(outcome)) stat[0]++;
+                }
+
+                if (sr != null && !sr.isBlank() && outcome != null && !outcome.isBlank()) {
+                    int[] stat = srStats.computeIfAbsent(sr, k -> new int[2]);
                     stat[1]++;
                     if ("Win".equals(outcome)) stat[0]++;
                 }
@@ -166,7 +207,21 @@ public class AnalyticsPanel extends JPanel {
                             (double) b.getValue()[0] / b.getValue()[1],
                             (double) a.getValue()[0] / a.getValue()[1]))
                     .forEach(entry -> patternList.add(
-                            patternBar(entry.getKey(), entry.getValue()[0], entry.getValue()[1])));
+                            winRateBar(entry.getKey(), entry.getValue()[0], entry.getValue()[1])));
+        }
+
+        if (srStats.isEmpty()) {
+            JLabel empty = new JLabel("No completed trades with an S/R level logged yet.");
+            empty.setFont(Theme.cellFont());
+            empty.setForeground(Theme.current().textSecondary);
+            srList.add(empty);
+        } else {
+            srStats.entrySet().stream()
+                    .sorted((a, b) -> Double.compare(
+                            (double) b.getValue()[0] / b.getValue()[1],
+                            (double) a.getValue()[0] / a.getValue()[1]))
+                    .forEach(entry -> srList.add(
+                            winRateBar(entry.getKey(), entry.getValue()[0], entry.getValue()[1])));
         }
 
         equityCurve.setData(equitySeries);
@@ -176,13 +231,10 @@ public class AnalyticsPanel extends JPanel {
     }
 
     private JPanel statCard(String label, String value, Color accentColor) {
-        JPanel card = new JPanel();
+        RoundedPanel card = new RoundedPanel();
+        card.cornerRadius(14).showBorder(true).showShadow(true);
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
-        card.setBackground(Theme.current().surface);
-        card.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Theme.current().border),
-                BorderFactory.createEmptyBorder(12, 14, 12, 14)
-        ));
+        card.setBorder(BorderFactory.createEmptyBorder(12, 14, 12, 14));
 
         JLabel labelLbl = new JLabel(label);
         labelLbl.setFont(Theme.cellFont());
@@ -200,36 +252,39 @@ public class AnalyticsPanel extends JPanel {
         return card;
     }
 
-    private JPanel patternBar(String pattern, int wins, int total) {
+    /** Shared row style for both pattern and S/R breakdowns -- a label,
+     *  a rounded progress bar, and the win rate / count. */
+    private JPanel winRateBar(String label, int wins, int total) {
         double rate = (double) wins / total;
 
         JPanel row = new JPanel(new BorderLayout(10, 0));
-        row.setBackground(Theme.current().background);
+        row.setOpaque(false);
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
         row.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
 
-        JLabel nameLbl = new JLabel(pattern);
+        JLabel nameLbl = new JLabel(label);
         nameLbl.setFont(Theme.cellFont());
         nameLbl.setForeground(Theme.current().textPrimary);
         nameLbl.setPreferredSize(new Dimension(110, 20));
         row.add(nameLbl, BorderLayout.WEST);
 
-        JPanel barTrack = new JPanel(null);
-        barTrack.setBackground(Theme.current().surface);
-        barTrack.setBorder(BorderFactory.createLineBorder(Theme.current().border));
+        RoundedPanel barTrack = new RoundedPanel(null);
+        barTrack.cornerRadius(9).showBorder(true).showShadow(false);
         barTrack.setPreferredSize(new Dimension(200, 18));
 
-        JPanel barFill = new JPanel();
-        barFill.setBackground(rate >= 0.5 ? Theme.current().success : Theme.current().danger);
+        RoundedPanel barFill = new RoundedPanel();
+        barFill.cornerRadius(9).showBorder(false).showShadow(false);
+        barFill.fixedBackground(rate >= 0.5 ? Theme.current().success : Theme.current().danger);
         barTrack.add(barFill);
         barTrack.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentResized(java.awt.event.ComponentEvent e) {
-                barFill.setBounds(0, 0, (int) (barTrack.getWidth() * rate), barTrack.getHeight());
+                int w = Math.max((int) (barTrack.getWidth() * rate), rate > 0 ? 18 : 0);
+                barFill.setBounds(0, 0, w, barTrack.getHeight());
             }
         });
-        barFill.setBounds(0, 0, (int) (200 * rate), 18);
+        barFill.setBounds(0, 0, Math.max((int) (200 * rate), rate > 0 ? 18 : 0), 18);
         row.add(barTrack, BorderLayout.CENTER);
 
         JLabel pctLbl = new JLabel(String.format("%.0f%% (%d/%d)", rate * 100, wins, total));
@@ -238,57 +293,5 @@ public class AnalyticsPanel extends JPanel {
         row.add(pctLbl, BorderLayout.EAST);
 
         return row;
-    }
-
-    /** Hand-drawn line chart -- no charting library dependency needed for something this simple. */
-    private static class EquityCurveChart extends JPanel {
-        private List<Integer> data = new ArrayList<>();
-
-        void setData(List<Integer> data) {
-            this.data = data;
-            repaint();
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) {
-            super.paintComponent(g);
-            setBackground(Theme.current().surface);
-
-            Graphics2D g2 = (Graphics2D) g;
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-            int w = getWidth();
-            int h = getHeight();
-            int padding = 20;
-
-            if (data.size() < 2) {
-                g2.setColor(Theme.current().textSecondary);
-                g2.drawString("Not enough completed trades to chart yet.", padding, h / 2);
-                return;
-            }
-
-            int min = data.stream().min(Integer::compareTo).orElse(0);
-            int max = data.stream().max(Integer::compareTo).orElse(0);
-            if (min == max) { min -= 1; max += 1; }
-
-            g2.setColor(Theme.current().border);
-            g2.drawLine(padding, h - padding, w - padding, h - padding);
-
-            int zeroY = h - padding - (int) (((0.0 - min) / (max - min)) * (h - 2 * padding));
-            g2.drawLine(padding, zeroY, w - padding, zeroY);
-
-            g2.setColor(Theme.current().accent);
-            g2.setStroke(new BasicStroke(2f));
-
-            int stepX = (w - 2 * padding) / (data.size() - 1);
-            int prevX = padding, prevY = 0;
-            for (int i = 0; i < data.size(); i++) {
-                int x = padding + i * stepX;
-                int y = h - padding - (int) (((data.get(i) - min) / (double) (max - min)) * (h - 2 * padding));
-                if (i > 0) g2.drawLine(prevX, prevY, x, y);
-                prevX = x;
-                prevY = y;
-            }
-        }
     }
 }

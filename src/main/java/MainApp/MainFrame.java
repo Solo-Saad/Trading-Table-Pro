@@ -93,11 +93,11 @@ public class MainFrame extends JFrame {
         topBar = new TopBar();
 
         tradeTablePanel = new TradeTablePanel();
-        dashboardPanel  = new DashboardPanel();
+        dashboardPanel  = new DashboardPanel(this::showCard);
         analyticsPanel  = new AnalyticsPanel();
         journalPanel    = new JournalPanel();
         calendarPanel   = new CalendarPanel();
-        settingsPanel   = new SettingsPanel(name -> topBar.setProfileName(name));
+        settingsPanel   = new SettingsPanel(name -> topBar.setProfileName(name), () -> tradeTablePanel.reloadFromDatabase());
 
         cardPanel.add(dashboardPanel, "Dashboard");
         cardPanel.add(tradeTablePanel, "Trades");
@@ -145,6 +145,7 @@ public class MainFrame extends JFrame {
 
     private void showCard(String name) {
         cardLayout.show(cardPanel, name);
+        sidebar.setActive(name);
     }
 
     public static void main(String[] args) {

@@ -40,9 +40,9 @@ public class Theme {
         public final Color selection;
 
         public Palette(Color background, Color surface, Color headerBg, Color headerFg,
-                        Color rowEven, Color rowOdd, Color hover, Color border,
-                        Color textPrimary, Color textSecondary, Color accent,
-                        Color success, Color danger, Color warning, Color selection) {
+                       Color rowEven, Color rowOdd, Color hover, Color border,
+                       Color textPrimary, Color textSecondary, Color accent,
+                       Color success, Color danger, Color warning, Color selection) {
             this.background = background;
             this.surface = surface;
             this.headerBg = headerBg;
@@ -61,40 +61,42 @@ public class Theme {
         }
     }
 
+    // Warm, soft-card design language: cream backgrounds, white cards,
+    // violet accent -- matching the reference look the person shared.
     private static final Palette LIGHT = new Palette(
-            new Color(236, 240, 241),   // background
-            Color.WHITE,                // surface
-            new Color(44, 62, 80),      // headerBg (was a 7-color rainbow array — now one color)
-            Color.WHITE,                // headerFg
-            new Color(236, 240, 241),   // rowEven
-            Color.WHITE,                // rowOdd
-            new Color(174, 214, 241),   // hover
-            new Color(189, 195, 199),   // border
-            new Color(44, 62, 80),      // textPrimary
-            new Color(127, 140, 141),   // textSecondary
-            new Color(52, 152, 219),    // accent
-            new Color(46, 204, 113),    // success
-            new Color(231, 76, 60),     // danger
-            new Color(230, 126, 34),    // warning
-            new Color(52, 152, 219)     // selection
+            new Color(247, 245, 240),   // background -- warm cream
+            Color.WHITE,                 // surface -- card white
+            new Color(35, 32, 28),       // headerBg -- warm near-black
+            Color.WHITE,                 // headerFg
+            new Color(250, 248, 244),    // rowEven
+            Color.WHITE,                 // rowOdd
+            new Color(238, 234, 250),    // hover -- soft lavender tint
+            new Color(230, 226, 218),    // border -- warm soft gray
+            new Color(32, 29, 25),       // textPrimary -- warm near-black
+            new Color(128, 122, 112),    // textSecondary -- warm gray
+            new Color(109, 90, 226),     // accent -- violet
+            new Color(34, 197, 94),      // success
+            new Color(239, 68, 68),      // danger
+            new Color(245, 158, 11),     // warning
+            new Color(109, 90, 226)      // selection
     );
 
     private static final Palette DARK = new Palette(
-            new Color(30, 33, 36),      // background
-            new Color(40, 44, 48),      // surface
-            new Color(52, 58, 64),      // headerBg
-            new Color(236, 240, 241),   // headerFg
-            new Color(40, 44, 48),      // rowEven
-            new Color(48, 52, 56),      // rowOdd
-            new Color(60, 75, 90),      // hover
-            new Color(70, 74, 78),      // border
-            new Color(230, 230, 230),   // textPrimary
-            new Color(160, 165, 170),   // textSecondary
-            new Color(66, 165, 245),    // accent
-            new Color(46, 204, 113),    // success
-            new Color(231, 76, 60),     // danger
-            new Color(230, 126, 34),    // warning
-            new Color(41, 98, 145)      // selection
+            new Color(24, 22, 20),       // background -- warm near-black
+            new Color(34, 32, 29),       // surface
+            new Color(20, 18, 16),       // headerBg
+            new Color(235, 232, 225),    // headerFg
+            new Color(34, 32, 29),       // rowEven
+            new Color(40, 37, 34),       // rowOdd
+            new Color(52, 46, 68),       // hover -- soft violet tint
+            new Color(55, 52, 47),       // border
+            new Color(235, 232, 225),    // textPrimary -- warm off-white
+            new Color(158, 152, 142),    // textSecondary
+            new Color(148, 130, 245),    // accent -- lighter violet for dark contrast
+            new Color(52, 211, 133),     // success
+            new Color(248, 113, 113),    // danger
+            new Color(251, 191, 36),     // warning
+            new Color(148, 130, 245)     // selection
     );
 
     public static Palette current() {
@@ -139,4 +141,15 @@ public class Theme {
     public static Font cellFont()     { return new Font(FONT_FAMILY, Font.PLAIN, 14); }
     public static Font buttonFont()   { return new Font(FONT_FAMILY, Font.BOLD, 13); }
     public static Font sectionFont()  { return new Font(FONT_FAMILY, Font.BOLD, 14); }
+
+    /** Blends two colors -- ratio 1.0 = fully `a`, 0.0 = fully `b`.
+     *  Used for tinted badges/highlights (e.g. a soft accent-tinted
+     *  pill background) without needing a dedicated palette entry
+     *  for every possible tint. */
+    public static Color mix(Color a, Color b, float ratio) {
+        int r = (int) (a.getRed() * ratio + b.getRed() * (1 - ratio));
+        int g = (int) (a.getGreen() * ratio + b.getGreen() * (1 - ratio));
+        int bl = (int) (a.getBlue() * ratio + b.getBlue() * (1 - ratio));
+        return new Color(r, g, bl);
+    }
 }

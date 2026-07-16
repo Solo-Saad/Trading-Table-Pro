@@ -21,16 +21,23 @@ public class JournalPanel extends JPanel {
     private JComboBox<String> tradeSelector;
     private java.util.List<Integer> tradeSelectorIds; // parallel to combo box items; null at index 0
 
+    private JLabel titleLabel;
+    private JPanel body;
+    private JLabel formLabel;
+    private JPanel linkRow;
+    private JLabel linkLabel;
+    private JPanel saveRow;
+
     public JournalPanel() {
         setLayout(new BorderLayout(0, 16));
         setBackground(Theme.current().background);
 
-        JLabel title = new JLabel("Journal");
-        title.setFont(Theme.headerFont());
-        title.setForeground(Theme.current().textPrimary);
-        add(title, BorderLayout.NORTH);
+        titleLabel = new JLabel("Journal");
+        titleLabel.setFont(Theme.headerFont());
+        titleLabel.setForeground(Theme.current().textPrimary);
+        add(titleLabel, BorderLayout.NORTH);
 
-        JPanel body = new JPanel(new BorderLayout(0, 16));
+        body = new JPanel(new BorderLayout(0, 16));
         body.setBackground(Theme.current().background);
 
         // ─── New entry form ───
@@ -42,19 +49,19 @@ public class JournalPanel extends JPanel {
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
 
-        JLabel formLabel = new JLabel("New entry \u2014 " + LocalDate.now());
+        formLabel = new JLabel("New entry \u2014 " + LocalDate.now());
         formLabel.setFont(Theme.cellFont());
         formLabel.setForeground(Theme.current().textSecondary);
         formLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         form.add(formLabel);
         form.add(Box.createRigidArea(new Dimension(0, 8)));
 
-        JPanel linkRow = new JPanel(new BorderLayout(8, 0));
+        linkRow = new JPanel(new BorderLayout(8, 0));
         linkRow.setBackground(Theme.current().surface);
         linkRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         linkRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
 
-        JLabel linkLabel = new JLabel("Link to trade:");
+        linkLabel = new JLabel("Link to trade:");
         linkLabel.setFont(Theme.cellFont());
         linkLabel.setForeground(Theme.current().textSecondary);
         linkRow.add(linkLabel, BorderLayout.WEST);
@@ -75,7 +82,7 @@ public class JournalPanel extends JPanel {
 
         JButton saveButton = new JButton("Save entry");
         saveButton.addActionListener(e -> saveEntry());
-        JPanel saveRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        saveRow = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         saveRow.setBackground(Theme.current().surface);
         saveRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         saveRow.add(saveButton);
@@ -107,14 +114,27 @@ public class JournalPanel extends JPanel {
 
     public void refreshTheme() {
         setBackground(Theme.current().background);
+        titleLabel.setForeground(Theme.current().textPrimary);
+        body.setBackground(Theme.current().background);
+
         form.setBackground(Theme.current().surface);
         form.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(Theme.current().border),
                 BorderFactory.createEmptyBorder(12, 12, 12, 12)
         ));
-        noteInput.setFont(Theme.cellFont());
+        formLabel.setForeground(Theme.current().textSecondary);
+
+        linkRow.setBackground(Theme.current().surface);
+        linkLabel.setForeground(Theme.current().textSecondary);
+
+        saveRow.setBackground(Theme.current().surface);
+
+        noteInput.setFont(Theme.cellFont()); // font only -- text itself untouched
         entryList.setBackground(Theme.current().background);
+
         loadEntries();
+        revalidate();
+        repaint();
     }
 
     /** Repopulates the "link to trade" dropdown, preserving the current selection where possible. */

@@ -4,23 +4,24 @@ import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
+import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.sql.*;
 
 /**
  * The "Trades" screen: the editable trade table, its dropdown cell
- * editors, and the action buttons (add/remove/clear/save/analyse).
- * Extracted out of the old TradingTablePro god-class — behavior is
- * unchanged from before, just relocated.
+ * editors, per-row delete, live search, and the action buttons.
  */
 public class TradeTablePanel extends JPanel {
 
     private static final Map<String, String[]> columnOptions = new HashMap<>();
+    private static final int DELETE_COL = 10; // last visible column, model index
 
     static {
         columnOptions.put("Pair", new String[]{"", "AUDUSD", "USDJPY", "EURUSD", "GBPUSD", "EURJPY", "USDCADA", "USDCHF", "DXY", "EURGBP", "EURCHF", "CHFJP", "GBPJPY", "EURCAD", "CADJPY", "SGDJPY", "USDZAR", "CADCHF", "GBPCAD", "GBPCHF", "USDSGD", "GBPSGD", "EURSGD", "GBPZAR", "EURZAR", "AUDJPY", "GBPAUD", "EURAUD", "NZDUSD", "AUDNZD", "AUDCHF", "AUDCAD", "GBPNZD", "AUDSGD", "EURNZD", "NZDJPY", "NZDCAD", "NZDCHF", "USDNOK", "EURSEK", "USDSEK", "CADNOK", "CHFNOK", "EURDKK", "EURNOK", "GBPNOK", "GBPSEK", "NOKSEK", "NOKJPY", "SEKJPY", "USDDKK", "MXNJPY", "EURMXN", "GBPMXN", "USDMXN", "AUDCNH", "USDCNH", "CNHJPY", "CADCNH", "NZDCNH", "EURCNH", "GBPCNH", "NQ100", "AU200", "JPN225", "GER40", "US30", "US500", "UK100", "HK50", "FRA40", "TAIWAN", "US2000", "CHINA50", "EU50", "SPAIN35", "FANG", "NL25", "EMERGING MARKETS", "SWEDEN30", "SINGAPORE30", "SA40", "SWITZERLAND", "ETHER", "BITCOIN", "SOLANA", "USOIL", "UKOIL", "GOLD", "SILVER", "COOPER"});
@@ -34,9 +35,15 @@ public class TradeTablePanel extends JPanel {
     }
 
     private JTable table;
+    private TableRowSorter<DefaultTableModel> sorter;
+    private RoundedPanel tableCard;
+    private RoundedPanel toolbarCard;
     private JScrollPane scrollPane;
     private JPanel buttonPanel;
-    private JButton addRowButton, removeRowButton, clearButton, saveButton;
+    private SearchField searchField;
+    private JLabel saveStatusLabel;
+    private PillButton addRowButton, saveButton;
+    private PillButton clearButton;
     private JWindow currentDropdown = null;
     private AWTEventListener dropdownListener = null;
     private int hoveredRow = -1;
@@ -48,47 +55,67 @@ public class TradeTablePanel extends JPanel {
     private Timer autosaveTimer;
 
     private static final int AUTOSAVE_INTERVAL_MS = 10_000;
+    private static final int STARTER_ROW_COUNT = 5;
 
     public TradeTablePanel() {
-        setLayout(new BorderLayout(10, 10));
+        setLayout(new BorderLayout(0, 12));
         setBackground(Theme.current().background);
 
         table = createProfessionalTable();
         loadTrades();
 
         table.getModel().addTableModelListener(e -> {
-            if (!isLoading) dirty = true;
+            if (!isLoading) {
+                dirty = true;
+                updateSaveStatus();
+            }
         });
 
+        tableCard = new RoundedPanel(new BorderLayout());
+        tableCard.cornerRadius(16).showBorder(true).showShadow(true);
+        tableCard.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
         scrollPane = new JScrollPane(table);
-        scrollPane.setBorder(BorderFactory.createLineBorder(Theme.current().border, 1));
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
         scrollPane.getViewport().setBackground(Theme.current().surface);
-        add(scrollPane, BorderLayout.CENTER);
+        tableCard.add(scrollPane, BorderLayout.CENTER);
+        add(tableCard, BorderLayout.CENTER);
+
+        RoundedPanel toolbarCard = new RoundedPanel(new BorderLayout(12, 0));
+        this.toolbarCard = toolbarCard;
+        toolbarCard.cornerRadius(14).showBorder(true).showShadow(false);
+        toolbarCard.setBorder(BorderFactory.createEmptyBorder(10, 14, 10, 14));
 
         buttonPanel = createButtonPanel();
-        add(buttonPanel, BorderLayout.NORTH);
+        toolbarCard.add(buttonPanel, BorderLayout.WEST);
+        toolbarCard.add(createControlsRow(), BorderLayout.EAST);
+
+        add(toolbarCard, BorderLayout.NORTH);
 
         autosaveTimer = new Timer(AUTOSAVE_INTERVAL_MS, e -> {
             if (dirty) saveTrades();
         });
         autosaveTimer.start();
+
+        updateSaveStatus();
     }
 
     /** Re-applies current Theme colors to existing components without
      *  rebuilding the table model -- unsaved edits are preserved. */
     public void refreshTheme() {
         setBackground(Theme.current().background);
-        scrollPane.setBorder(BorderFactory.createLineBorder(Theme.current().border, 1));
         scrollPane.getViewport().setBackground(Theme.current().surface);
+        toolbarCard.repaint();
 
-        addRowButton.setBackground(Theme.current().success);
-        removeRowButton.setBackground(Theme.current().danger);
-        clearButton.setBackground(Theme.current().warning);
-        saveButton.setBackground(Theme.current().accent);
-        buttonPanel.setBackground(Theme.current().background);
+        addRowButton.repaint();
+        clearButton.repaint();
+        saveButton.repaint();
+        searchField.repaint();
 
         table.getTableHeader().repaint();
         table.repaint();
+        tableCard.repaint();
+        updateSaveStatus();
         revalidate();
         repaint();
     }
@@ -96,6 +123,26 @@ public class TradeTablePanel extends JPanel {
     /** Called by MainFrame when the window is closing. */
     public void saveOnExit() {
         saveTrades();
+    }
+
+    /** Called after a CSV import (or any external change to the trades
+     *  table) so the currently-open Trades screen reflects new data
+     *  without needing an app restart. */
+    public void reloadFromDatabase() {
+        loadTrades();
+    }
+
+    private void updateSaveStatus() {
+        if (saveStatusLabel == null) return;
+        if (dirty) {
+            saveStatusLabel.setText("Unsaved changes");
+            saveStatusLabel.setIcon(new DotIcon(Theme.current().warning));
+            saveStatusLabel.setForeground(Theme.current().warning);
+        } else {
+            saveStatusLabel.setText("All changes saved");
+            saveStatusLabel.setIcon(new CheckIcon(Theme.current().success));
+            saveStatusLabel.setForeground(Theme.current().success);
+        }
     }
 
     private void loadTrades() {
@@ -124,8 +171,17 @@ public class TradeTablePanel extends JPanel {
                         rs.getString("entrySignal"),
                         rs.getString("outcome"),
                         (storedDate == null || storedDate.isBlank()) ? "" : storedDate,
-                        rs.getInt("id")
+                        rs.getInt("id"),
+                        "" // delete column -- no real data, just a click target
                 });
+            }
+
+            // No saved trades at all -- show a handful of blank rows ready
+            // to fill in, instead of a completely empty table on first open.
+            if (model.getRowCount() == 0) {
+                for (int i = 0; i < STARTER_ROW_COUNT; i++) {
+                    model.addRow(new Object[]{"", "", "", "", "", "", "", "", "", null, ""});
+                }
             }
         } catch (Exception e) {
             JOptionPane.showMessageDialog(
@@ -137,6 +193,7 @@ public class TradeTablePanel extends JPanel {
         } finally {
             isLoading = false;
             dirty = false;
+            updateSaveStatus();
         }
     }
 
@@ -193,6 +250,7 @@ public class TradeTablePanel extends JPanel {
 
                 conn.commit();
                 dirty = false;
+                updateSaveStatus();
 
             } catch (Exception innerEx) {
                 conn.rollback();
@@ -212,7 +270,7 @@ public class TradeTablePanel extends JPanel {
     }
 
     private JTable createProfessionalTable() {
-        String[] columnNames = {"Pair", "Pattern", "Wave", "Diversion", "S/R", "Direction", "Entry signal", "outcome", "Date", "id"};
+        String[] columnNames = {"Pair", "Pattern", "Wave", "Diversion", "S/R", "Direction", "Entry signal", "outcome", "Date", "id", ""};
         DefaultTableModel model = new DefaultTableModel(columnNames, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -228,6 +286,9 @@ public class TradeTablePanel extends JPanel {
         table.setGridColor(Theme.current().border);
         table.setShowGrid(true);
         table.setIntercellSpacing(new Dimension(1, 1));
+
+        sorter = new TableRowSorter<>(model);
+        table.setRowSorter(sorter);
 
         // id column stays in the model (needed for update/delete) but hidden from view
         table.getColumnModel().removeColumn(table.getColumnModel().getColumn(9));
@@ -258,6 +319,7 @@ public class TradeTablePanel extends JPanel {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
                                                            boolean isSelected, boolean hasFocus, int row, int column) {
+                int modelCol = table.convertColumnIndexToModel(column);
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 boolean isHovered = (row == hoveredRow && column == hoveredCol);
 
@@ -274,6 +336,27 @@ public class TradeTablePanel extends JPanel {
 
                 setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
                 setHorizontalAlignment(SwingConstants.LEFT);
+                setIcon(null);
+
+                if (modelCol == 7) { // outcome -- colored badge-style text
+                    String outcome = value == null ? "" : value.toString();
+                    setText(outcome);
+                    setFont(Theme.buttonFont());
+                    if (!isSelected) {
+                        Color badgeColor = switch (outcome) {
+                            case "Win" -> Theme.current().success;
+                            case "Loss" -> Theme.current().danger;
+                            case "Break Even" -> Theme.current().warning;
+                            default -> Theme.current().textPrimary;
+                        };
+                        c.setForeground(badgeColor);
+                    }
+                } else if (modelCol == DELETE_COL) {
+                    setText(null);
+                    setIcon(new TrashIcon(isSelected ? Color.WHITE : Theme.current().danger));
+                    setHorizontalAlignment(SwingConstants.CENTER);
+                }
+
                 return c;
             }
         });
@@ -288,6 +371,8 @@ public class TradeTablePanel extends JPanel {
                     hoveredCol = col;
                     table.repaint();
                 }
+                boolean overDelete = col >= 0 && table.convertColumnIndexToModel(col) == DELETE_COL;
+                table.setCursor(overDelete ? new Cursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
             }
         });
 
@@ -303,11 +388,24 @@ public class TradeTablePanel extends JPanel {
         table.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                int row = table.rowAtPoint(e.getPoint());
-                int col = table.columnAtPoint(e.getPoint());
-                if (row >= 0 && col >= 0) {
-                    showDropdownMenu(row, col, e.getX(), e.getY());
+                int viewRow = table.rowAtPoint(e.getPoint());
+                int viewCol = table.columnAtPoint(e.getPoint());
+                if (viewRow < 0 || viewCol < 0) return;
+
+                int modelCol = table.convertColumnIndexToModel(viewCol);
+
+                if (modelCol == DELETE_COL) {
+                    int modelRow = table.convertRowIndexToModel(viewRow);
+                    DefaultTableModel m = (DefaultTableModel) table.getModel();
+                    Object idVal = m.getValueAt(modelRow, 9);
+                    if (idVal != null) deletedIds.add((Integer) idVal);
+                    m.removeRow(modelRow);
+                    dirty = true;
+                    updateSaveStatus();
+                    return;
                 }
+
+                showDropdownMenu(viewRow, viewCol, e.getX(), e.getY());
             }
         });
 
@@ -319,8 +417,23 @@ public class TradeTablePanel extends JPanel {
         table.getColumnModel().getColumn(5).setPreferredWidth(130);
         table.getColumnModel().getColumn(6).setPreferredWidth(120);
         table.getColumnModel().getColumn(8).setPreferredWidth(100);
+        table.getColumnModel().getColumn(table.getColumnModel().getColumnCount() - 1).setPreferredWidth(40);
+        table.getColumnModel().getColumn(table.getColumnModel().getColumnCount() - 1).setMaxWidth(44);
 
         return table;
+    }
+
+    /** Sets the value and auto-advances to the next dropdown column --
+     *  shared by both a mouse click on an option and pressing Enter
+     *  in the filter box. */
+    private void selectOption(int row, int col, String option) {
+        table.setValueAt(option, row, col);
+        closeDropdown();
+
+        int nextCol = col + 1;
+        if (nextCol <= 7) {
+            SwingUtilities.invokeLater(() -> showDropdownMenu(row, nextCol, 0, 0));
+        }
     }
 
     private void showDropdownMenu(int row, int col, int x, int y) {
@@ -331,69 +444,140 @@ public class TradeTablePanel extends JPanel {
         if (options == null) return;
 
         JWindow dropdown = new JWindow(SwingUtilities.getWindowAncestor(this));
+        try {
+            dropdown.setBackground(new Color(0, 0, 0, 0)); // enables real rounded corners, not a square box
+        } catch (Exception ignored) {
+            // per-pixel translucency unsupported on this system -- falls back to a square window, still functional
+        }
         currentDropdown = dropdown;
 
         JPanel itemPanel = new JPanel();
         itemPanel.setLayout(new BoxLayout(itemPanel, BoxLayout.Y_AXIS));
-        itemPanel.setBackground(Theme.current().surface);
-        itemPanel.setBorder(BorderFactory.createLineBorder(Theme.current().border, 1));
+        itemPanel.setOpaque(false);
+        itemPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
+        // Tracks each row alongside the option text it represents, so
+        // the filter box can show/hide rows and Enter can jump to the
+        // first currently-visible match.
+        List<Object[]> rows = new ArrayList<>(); // {RoundedPanel itemRow, String option, String label}
 
         for (String option : options) {
             String label = option.isEmpty() ? "-- Clear --" : option;
-            JPanel itemRow = new JPanel(new BorderLayout());
-            itemRow.setBackground(Theme.current().surface);
+
+            RoundedPanel itemRow = new RoundedPanel(new BorderLayout());
+            itemRow.cornerRadius(8).showBorder(false).showShadow(false);
+            itemRow.fixedBackground(new Color(0, 0, 0, 0));
             itemRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
-            itemRow.setPreferredSize(new Dimension(200, 32));
+            itemRow.setPreferredSize(new Dimension(220, 32));
             itemRow.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 10));
 
             JLabel itemLabel = new JLabel(label);
             itemLabel.setFont(Theme.cellFont());
+            itemLabel.setForeground(Theme.current().textPrimary);
             itemRow.add(itemLabel, BorderLayout.CENTER);
 
             itemRow.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseEntered(MouseEvent e) {
-                    itemRow.setBackground(Theme.current().hover);
+                    itemRow.fixedBackground(Theme.current().hover);
+                    itemRow.repaint();
                 }
 
                 @Override
                 public void mouseExited(MouseEvent e) {
-                    itemRow.setBackground(Theme.current().surface);
+                    itemRow.fixedBackground(new Color(0, 0, 0, 0));
+                    itemRow.repaint();
                 }
 
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    table.setValueAt(option, row, col);
-                    closeDropdown();
+                    selectOption(row, col, option);
                 }
             });
 
             itemPanel.add(itemRow);
+            rows.add(new Object[]{itemRow, option, label});
         }
 
         int MAX_VISIBLE = 8;
         int ITEM_HEIGHT = 32;
-        int panelWidth = 210;
+        int panelWidth = 228;
 
         JScrollPane scrollPane = new JScrollPane(itemPanel);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.setOpaque(false);
+        scrollPane.getViewport().setOpaque(false);
         scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 
-        int visibleHeight = Math.min(options.length, MAX_VISIBLE) * ITEM_HEIGHT;
+        int visibleHeight = Math.min(options.length, MAX_VISIBLE) * ITEM_HEIGHT + 8;
         scrollPane.setPreferredSize(new Dimension(panelWidth, visibleHeight));
 
-        dropdown.add(scrollPane);
+        RoundedPanel content = new RoundedPanel(new BorderLayout());
+        content.cornerRadius(14).showBorder(true).showShadow(true);
+
+        // Only worth showing the filter box when there's enough options
+        // to actually make scrolling annoying -- a 2-3 item list (like
+        // Direction) doesn't need one.
+        if (options.length > 6) {
+            JTextField filterField = new JTextField();
+            filterField.setOpaque(false);
+            filterField.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createMatteBorder(0, 0, 1, 0, Theme.current().border),
+                    BorderFactory.createEmptyBorder(8, 12, 8, 12)
+            ));
+            filterField.setFont(Theme.cellFont());
+            filterField.putClientProperty("JTextField.placeholderText", "Type to filter...");
+
+            filterField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                private void apply() {
+                    String query = filterField.getText().trim().toLowerCase();
+                    for (Object[] r : rows) {
+                        JPanel itemRow = (JPanel) r[0];
+                        String label = ((String) r[2]).toLowerCase();
+                        itemRow.setVisible(query.isEmpty() || label.contains(query));
+                    }
+                    itemPanel.revalidate();
+                    itemPanel.repaint();
+                }
+                @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { apply(); }
+                @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { apply(); }
+                @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { apply(); }
+            });
+
+            filterField.addActionListener(e -> {
+                // Enter -- jump straight to the first still-visible match
+                for (Object[] r : rows) {
+                    JPanel itemRow = (JPanel) r[0];
+                    if (itemRow.isVisible()) {
+                        selectOption(row, col, (String) r[1]);
+                        return;
+                    }
+                }
+            });
+
+            content.add(filterField, BorderLayout.NORTH);
+        }
+
+        content.add(scrollPane, BorderLayout.CENTER);
+        dropdown.add(content);
         dropdown.pack();
 
         Rectangle cellRect = table.getCellRect(row, col, false);
         Point cellOnScreen = table.getLocationOnScreen();
         dropdown.setLocation(
                 cellOnScreen.x + cellRect.x,
-                cellOnScreen.y + cellRect.y + cellRect.height
+                cellOnScreen.y + cellRect.y + cellRect.height + 4
         );
 
         dropdown.setVisible(true);
+
+        if (options.length > 6) {
+            SwingUtilities.invokeLater(() -> {
+                Component first = ((BorderLayout) content.getLayout()).getLayoutComponent(BorderLayout.NORTH);
+                if (first != null) first.requestFocusInWindow();
+            });
+        }
 
         dropdownListener = event -> {
             if (event instanceof MouseEvent me && me.getID() == MouseEvent.MOUSE_PRESSED) {
@@ -418,71 +602,170 @@ public class TradeTablePanel extends JPanel {
     }
 
     private JPanel createButtonPanel() {
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
-        buttonPanel.setBackground(Theme.current().background);
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        buttonPanel.setOpaque(false);
 
-        addRowButton    = createStyledButton("Add Row", Theme.current().success);
-        removeRowButton = createStyledButton("Remove Last Row", Theme.current().danger);
-        clearButton     = createStyledButton("Clear All", Theme.current().warning);
-        saveButton      = createStyledButton("Save Data", Theme.current().accent);
+        // One dominant filled color (Save, since that's the action that
+        // actually matters) instead of three separate colored pills
+        // fighting for attention. Add is outlined/secondary. Clear is
+        // downgraded to plain text -- it's rare and destructive, it
+        // shouldn't visually compete with the buttons you use constantly.
+        addRowButton = (PillButton) new PillButton("Add Trade", PillButton.Style.SECONDARY, PillButton.ColorRole.ACCENT).compact();
+        saveButton   = (PillButton) new PillButton("Save Trades", PillButton.Style.PRIMARY, PillButton.ColorRole.ACCENT).compact();
+
+        clearButton = (PillButton) new PillButton("Clear All", PillButton.Style.SECONDARY).compact();
 
         addRowButton.addActionListener(e -> {
-            DefaultTableModel model = (DefaultTableModel) table.getModel();
-            model.addRow(new Object[model.getColumnCount()]);
-        });
-
-        removeRowButton.addActionListener(e -> {
-            DefaultTableModel model = (DefaultTableModel) table.getModel();
-            if (model.getRowCount() > 0) {
-                int lastRow = model.getRowCount() - 1;
-                Object idVal = model.getValueAt(lastRow, 9);
-                if (idVal != null) deletedIds.add((Integer) idVal);
-                model.removeRow(lastRow);
+            if (searchField != null && !searchField.getText().isBlank()) {
+                searchField.setText(""); // clear filter so the new row is guaranteed visible
             }
+            DefaultTableModel model = (DefaultTableModel) table.getModel();
+            model.addRow(new Object[]{"", "", "", "", "", "", "", "", "", null, ""});
+            int newRow = model.getRowCount() - 1;
+            int viewRow = table.convertRowIndexToView(newRow);
+            table.scrollRectToVisible(table.getCellRect(viewRow, 0, true));
+            SwingUtilities.invokeLater(() -> showDropdownMenu(viewRow, 0, 0, 0));
         });
 
         clearButton.addActionListener(e -> {
-            int result = JOptionPane.showConfirmDialog(this,
-                    "Are you sure you want to clear all data?",
-                    "Confirm Clear",
-                    JOptionPane.YES_NO_OPTION);
-            if (result == JOptionPane.YES_OPTION) {
-                DefaultTableModel model = (DefaultTableModel) table.getModel();
-                for (int r = 0; r < model.getRowCount(); r++) {
-                    Object idVal = model.getValueAt(r, 9);
-                    if (idVal != null) deletedIds.add((Integer) idVal);
-                }
-                model.setRowCount(0);
+            JPanel confirmPanel = new JPanel();
+            confirmPanel.setLayout(new BoxLayout(confirmPanel, BoxLayout.Y_AXIS));
+            confirmPanel.setBackground(Theme.current().surface);
+            confirmPanel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
+            JLabel warning = new JLabel("<html>This permanently deletes <b>every trade</b> once saved.<br>"
+                    + "Type <b>CLEAR</b> below to confirm.</html>");
+            warning.setFont(Theme.cellFont());
+            warning.setAlignmentX(Component.LEFT_ALIGNMENT);
+            confirmPanel.add(warning);
+            confirmPanel.add(Box.createRigidArea(new Dimension(0, 10)));
+
+            JTextField confirmField = new JTextField();
+            confirmField.setAlignmentX(Component.LEFT_ALIGNMENT);
+            confirmPanel.add(confirmField);
+
+            int result = JOptionPane.showConfirmDialog(this, confirmPanel,
+                    "Confirm Clear All Trades", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+
+            if (result != JOptionPane.OK_OPTION) return;
+
+            if (!"CLEAR".equals(confirmField.getText().trim())) {
+                JOptionPane.showMessageDialog(this,
+                        "Text didn't match exactly — nothing was cleared.",
+                        "Cancelled", JOptionPane.INFORMATION_MESSAGE);
+                return;
             }
+
+            DefaultTableModel model = (DefaultTableModel) table.getModel();
+            for (int r = 0; r < model.getRowCount(); r++) {
+                Object idVal = model.getValueAt(r, 9);
+                if (idVal != null) deletedIds.add((Integer) idVal);
+            }
+            model.setRowCount(0);
         });
 
         saveButton.addActionListener(e -> saveTrades());
 
         buttonPanel.add(addRowButton);
-        buttonPanel.add(removeRowButton);
-        buttonPanel.add(clearButton);
         buttonPanel.add(saveButton);
+        buttonPanel.add(Box.createRigidArea(new Dimension(24, 0)));
+        buttonPanel.add(clearButton);
 
         return buttonPanel;
     }
 
-    private JButton createStyledButton(String text, Color bgColor) {
-        JButton button = new JButton(text);
-        button.setFont(Theme.buttonFont());
-        button.setForeground(Color.WHITE);
-        button.setBackground(bgColor);
-        button.setFocusPainted(false);
-        button.setBorderPainted(false);
-        button.setPreferredSize(new Dimension(180, 40));
-        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+    private JPanel createControlsRow() {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 4));
+        row.setOpaque(false);
 
-        button.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) { button.setBackground(bgColor.darker()); }
-            @Override
-            public void mouseExited(MouseEvent e)  { button.setBackground(bgColor); }
-        });
+        saveStatusLabel = new JLabel();
+        saveStatusLabel.setIconTextGap(6);
+        saveStatusLabel.setFont(new Font(Theme.FONT_FAMILY, Font.PLAIN, 12));
+        row.add(saveStatusLabel);
 
-        return button;
+        searchField = new SearchField("Search pair, pattern, outcome...");
+        searchField.onChange(text -> applyFilter());
+        row.add(searchField);
+
+        return row;
+    }
+
+    private void applyFilter() {
+        String text = searchField.getText().trim();
+        if (text.isEmpty()) {
+            sorter.setRowFilter(null);
+            return;
+        }
+        try {
+            sorter.setRowFilter(RowFilter.regexFilter("(?i)" + Pattern.quote(text), 0, 1, 7));
+        } catch (Exception ignored) {
+            // malformed search text -- just don't filter rather than crash
+        }
+    }
+
+    /** Hand-drawn trash can icon -- replaces a Unicode "X" glyph that
+     *  wasn't rendering reliably (showed as a blank box on some fonts). */
+    private static class TrashIcon implements Icon {
+        private final Color color;
+        TrashIcon(Color color) { this.color = color; }
+
+        @Override public int getIconWidth() { return 14; }
+        @Override public int getIconHeight() { return 14; }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color);
+            g2.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+
+            g2.drawLine(x + 2, y + 4, x + 12, y + 4);
+            g2.drawLine(x + 5, y + 4, x + 5, y + 2);
+            g2.drawLine(x + 9, y + 4, x + 9, y + 2);
+            g2.drawLine(x + 5, y + 2, x + 9, y + 2);
+            g2.drawRoundRect(x + 3, y + 4, 8, 9, 2, 2);
+            g2.drawLine(x + 6, y + 6, x + 6, y + 11);
+            g2.drawLine(x + 8, y + 6, x + 8, y + 11);
+
+            g2.dispose();
+        }
+    }
+
+    /** Small checkmark for "saved" status. */
+    private static class CheckIcon implements Icon {
+        private final Color color;
+        CheckIcon(Color color) { this.color = color; }
+
+        @Override public int getIconWidth() { return 12; }
+        @Override public int getIconHeight() { return 12; }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color);
+            g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.drawLine(x + 1, y + 6, x + 5, y + 10);
+            g2.drawLine(x + 5, y + 10, x + 11, y + 2);
+            g2.dispose();
+        }
+    }
+
+    /** Small filled dot for "unsaved changes" status. */
+    private static class DotIcon implements Icon {
+        private final Color color;
+        DotIcon(Color color) { this.color = color; }
+
+        @Override public int getIconWidth() { return 12; }
+        @Override public int getIconHeight() { return 12; }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(color);
+            g2.fillOval(x + 3, y + 3, 6, 6);
+            g2.dispose();
+        }
     }
 }

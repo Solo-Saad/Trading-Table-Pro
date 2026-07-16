@@ -235,4 +235,38 @@ public class DatabaseManager {
             pstmt.executeUpdate();
         }
     }
+
+    /** Consecutive days with at least one trade or journal entry, counting
+     *  back from today (or from yesterday, if today has nothing logged yet
+     *  so a same-day gap doesn't zero out the streak prematurely). */
+    public static int getLoggingStreak(Connection conn) throws SQLException {
+        java.util.Set<java.time.LocalDate> activeDays = new java.util.HashSet<>();
+
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT DISTINCT trade_date FROM trades WHERE trade_date IS NOT NULL")) {
+            while (rs.next()) {
+                try {
+                    activeDays.add(java.time.LocalDate.parse(rs.getString(1)));
+                } catch (Exception ignored) { }
+            }
+        }
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT DISTINCT entry_date FROM journal_entries WHERE entry_date IS NOT NULL")) {
+            while (rs.next()) {
+                try {
+                    activeDays.add(java.time.LocalDate.parse(rs.getString(1)));
+                } catch (Exception ignored) { }
+            }
+        }
+
+        java.time.LocalDate cursor = java.time.LocalDate.now();
+        if (!activeDays.contains(cursor)) cursor = cursor.minusDays(1);
+
+        int streak = 0;
+        while (activeDays.contains(cursor)) {
+            streak++;
+            cursor = cursor.minusDays(1);
+        }
+        return streak;
+    }
 }
